@@ -97,16 +97,49 @@ void incorrect_input(){
   HAL_UART_Transmit_IT(&huart1, (uint8_t*)"Incorrect command\n", strlen("Incorrect command\n"));
 }
 
-void set_prescaler(uint16_t freq_hz)
+void set_prescaler(uint16_t freq_hz, uint8_t pwm)
 {
+  if (freq_hz < 3){
+    uint16_t psc = (uint16_t)((16000000UL / freq_hz  / 1000UL) - 1UL);
+    __HAL_TIM_SET_PRESCALER(&htim1, psc);
+    __HAL_TIM_SET_AUTORELOAD(&htim1, 999);
+    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, (uint16_t)(pwm * 10));
+    HAL_TIM_GenerateEvent(&htim1, TIM_EVENTSOURCE_UPDATE);
+    __HAL_TIM_SET_PRESCALER(&htim2, psc);
+    HAL_TIM_GenerateEvent(&htim2, TIM_EVENTSOURCE_UPDATE);
+    return;
+  }
   uint16_t psc = (uint16_t)((16000000UL / freq_hz / 100UL) - 1UL);
   __HAL_TIM_SET_PRESCALER(&htim1, psc);
   HAL_TIM_GenerateEvent(&htim1, TIM_EVENTSOURCE_UPDATE);
   __HAL_TIM_SET_PRESCALER(&htim2, psc);
-  HAL_TIM_GenerateEvent(&htim2, TIM_OPMODE_REPETITIVE);
+  HAL_TIM_GenerateEvent(&htim2, TIM_EVENTSOURCE_UPDATE);
 }
 
 void set_tim_period(uint8_t freq_hz, uint32_t us) {
+	if (freq_hz < 3)
+	{
+	    uint32_t pulse_scaled = us / 100;
+	    uint32_t freq_period_us = 1000000UL / freq_hz;
+	    uint32_t freq_period_scaled = freq_period_us / 100;
+
+	    uint16_t psc1 = 1599;
+
+	    uint32_t arr = freq_period_scaled - 1;
+	    if (pulse_scaled > arr) {pulse_scaled = arr;}
+
+	    __HAL_TIM_SET_PRESCALER(&htim1, psc1);
+	    __HAL_TIM_SET_AUTORELOAD(&htim1, arr);
+	    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, pulse_scaled);
+	    HAL_TIM_GenerateEvent(&htim1, TIM_EVENTSOURCE_UPDATE);
+
+	    uint16_t psc2 = (uint16_t)((16000000UL / freq_hz / 1000UL) - 1UL);
+	    __HAL_TIM_SET_AUTORELOAD(&htim2, 499);
+	    __HAL_TIM_SET_PRESCALER(&htim2, psc2);
+	    HAL_TIM_GenerateEvent(&htim2, TIM_EVENTSOURCE_UPDATE);
+
+	    return;
+	}
     uint32_t period_us_scaled = us / 10;           
     uint32_t freq_period_us = 1000000UL / freq_hz;
     uint32_t freq_period_scaled = freq_period_us / 10;
@@ -120,12 +153,13 @@ void set_tim_period(uint8_t freq_hz, uint32_t us) {
     if (pulse_scaled > arr) pulse_scaled = arr;
     
     __HAL_TIM_SET_PRESCALER(&htim1, psc1);
-    __HAL_TIM_SET_AUTORELOAD(&htim1, (uint16_t)arr);
+    __HAL_TIM_SET_AUTORELOAD(&htim1, arr);
     __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, (uint16_t)pulse_scaled);
     HAL_TIM_GenerateEvent(&htim1, TIM_EVENTSOURCE_UPDATE);
     
     uint16_t psc2 = (uint16_t)((16000000UL / freq_hz / 100UL) - 1UL);
     __HAL_TIM_SET_PRESCALER(&htim2, psc2);
+    __HAL_TIM_SET_AUTORELOAD(&htim2, 49);
     HAL_TIM_GenerateEvent(&htim2, TIM_OPMODE_REPETITIVE);
 }
 
@@ -152,11 +186,11 @@ uint8_t parser(const char *str)
   }
 
   else if (strcmp(laser_cmd.sComm, "freqCUs") == 0){
-    if (freq_tmp < 5 || freq_tmp > 100){
+    if (freq_tmp < 0 || freq_tmp > 100){
       incorrect_input();
       return 0;
     }
-    else if(pwm_tmp < 0 || (pwm_tmp > 1000000UL / freq_tmp)){
+    else if(pwm_tmp < 0 ){
       incorrect_input();
       return 0;
     }
@@ -236,8 +270,12 @@ int main(void)
         rx_line_ready = 0;
         uint8_t parced_cmd = parser(rx_buffer);
         if (parced_cmd == 1){
-          set_prescaler(laser_cmd.freq);
-          set_pwm(laser_cmd.pwm);
+        	if (laser_cmd.freq < 3){
+        		set_prescaler(laser_cmd.freq, laser_cmd.pwm);}
+        	else{
+				set_prescaler(laser_cmd.freq, laser_cmd.pwm);
+				set_pwm(laser_cmd.pwm);}
+
         }
         else if (parced_cmd == 2){
           set_tim_period(laser_cmd_us.freq, laser_cmd_us.us);
